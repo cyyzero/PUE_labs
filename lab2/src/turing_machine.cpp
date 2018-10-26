@@ -1,4 +1,3 @@
-// #include <unistd.h>
 #include <fstream>
 #include <iostream>
 #include "tokenizer.h"
@@ -11,6 +10,12 @@ Turing_machine::Turing_machine(const std::filesystem::path& config_path,
                                const std::filesystem::path& tape_path)
     : tape(tape_path)
 {
+    if (!std::filesystem::exists(config_path))
+    {
+        std::string err = config_path.string() + " doesn't exist";
+        throw std::logic_error(err.c_str());
+    }
+
     std::string line;
     std::string config;
     std::ifstream fin(config_path);

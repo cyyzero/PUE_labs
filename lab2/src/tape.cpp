@@ -8,8 +8,14 @@
 Tape::Tape(const std::filesystem::path& path)
     : m_path(path)
 {
+
+    if (!std::filesystem::exists(path))
+    {
+        std::string err = path.string() + " doesn't exist";
+        throw std::logic_error(err.c_str());
+    }
+
     m_index = 0;
-    std::cout << std::filesystem::exists(path) << std::endl;
     std::string buf;
     std::string content;
     std::ifstream fin(path);
