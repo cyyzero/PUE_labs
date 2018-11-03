@@ -1,3 +1,4 @@
+#define _BSD_SOURCE
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
@@ -11,18 +12,26 @@
 #include <stdbool.h>
 #include "fileop.h"
 
+typedef char (*file_names_t)[4+FILE_NAME_NUM + 1];
+
 static char file_content[FILE_CONTENT_NUM+1];
 
 static void create_sources();
 static void create_content();
 static void copy_files();
-// static void find1();
-// static void find2();
-// static void find3();
+
+file_names_t get_file_names(char ch);
+
+static void search1(file_names_t);
+static void search2(file_names_t);
+static void search3(file_names_t);
+
 static void get_random_uppercase(char* buf, size_t num);
 static void get_random_lowercase(char* buf, size_t num);
 static void get_random_digits(char* buf, size_t num);
+
 static inline bool has_char(const char *str, char ch);
+static inline void print_mode(mode_t mode);
 
 void init(void)
 {
@@ -30,97 +39,269 @@ void init(void)
     create_sources();
     create_content();
     copy_files();
+
 }
 
-static void find1(char ch)
+void search(char target, int flags)
 {
-    static char path[1024];
-    static char path2[1024];
+    file_names_t file_names;
 
-    DIR *dir;
-    struct dirent *file;
-    int fd;
-
-    getcwd(path, 1024);
-    if ((dir = opendir("sources")) == NULL)
+    if (chdir("content/") == -1)
     {
-        ERROR_EXIT("opendir");
+        ERROR_EXIT("chdir");
     }
 
-    while ((file = readdir(dir)) != NULL)
-    {
-        if (has_char(file->d_name, ch))
-        {
-            size_t len = strlen(path);
-            strncat(path, file->d_name, FILE_NAME_NUM);
-            if ((fd = open(path, O_RDONLY)) == -1)
-            {
-                ERROR_EXIT("open");
-            }
-            switch (read(fd, file_content, FILE_CONTENT_NUM))
-            {
-            case -1:
-                ERROR_EXIT("read");
-            case FILE_CONTENT_NUM:
-                break;
-            default:
-                fprintf(stderr, "%s %d\n", __FILE__, __LINE__);
-                exit(EXIT_FAILURE);
-            }
-            printf("before: path: %s\tname: %s\tcontent: %s\n", path, file->d_name, file_content);
-            strncpy(path2, path, len+1);
-            get_random_digits(path2+len, 8);
-            if (rename(path, path2) == -1)
-            {
-                ERROR_EXIT("rename");
-            }
-            printf("afte:  name:  %s", path2+len);
+    file_names = get_file_names(target);
 
+    if (flags & OP_1)
+    {
+        puts("1");
+        search1(file_names);
+    }
+    else
+    {
+        if (flags & OP_2)
+        {
+            puts("2");
+            search2(file_names);
+        }
+        if (flags & OP_3)
+        {
+            puts("3");
+            search3(file_names);
         }
     }
-    if (closedir(dir) == -1)
+
+    if (chdir("..") == -1)
     {
-        ERROR_EXIT("closedir");
+        ERROR_EXIT("chdir");
+    }
+
+    free(file_names);
+}
+
+void recursive_remove(const char* name)
+{
+    struct stat st;
+    DIR* dd;
+    struct dirent* de;
+    bool unlink_flag;
+
+    if (stat(name, &st) == -1)
+    {
+        ERROR_EXIT("stat");
+    }
+
+    if (S_ISDIR(st.st_mode))
+    {
+        if ((dd = opendir(name)) == NULL)
+        {
+            ERROR_EXIT("opendir");
+        }
+        if (chdir(name) == -1)
+        {
+            ERROR_EXIT("chdir");
+        }
+        do {
+            unlink_flag = false;
+            while ((de = readdir(dd)) != NULL)
+            {
+                if (strcmp("..", de->d_name) == 0 || strcmp(".", de->d_name) == 0)
+                    continue;
+                if (stat(de->d_name, &st) == -1)
+                {
+                    ERROR_EXIT("stat");
+                }
+                if (S_ISDIR(st.st_mode))
+                {
+                    recursive_remove(de->d_name);
+                }
+                else
+                {
+                    if (unlink(de->d_name) == -1)
+                    {
+                        ERROR_EXIT("unlink");
+                    }
+                }
+                unlink_flag = true;
+            }
+            if (unlink_flag)
+            {
+                rewinddir(dd);
+            }
+        } while (unlink_flag);
+
+        if (closedir(dd) == -1)
+        {
+            ERROR_EXIT("dd");
+        }
+
+        if (chdir("..") == -1)
+        {
+            ERROR_EXIT("chdir");
+        }
+
+        if (rmdir(name) == -1)
+        {
+            ERROR_EXIT("rmdir");
+        }
+    }
+    else
+    {
+        if (unlink(name) == -1)
+        {
+            ERROR_EXIT("unlink");
+        }
     }
 }
 
-static void find2()
+file_names_t get_file_names(char ch)
 {
+    char path[4];
     DIR *dir;
     struct dirent *file;
+    file_names_t file_names;
+    size_t file_num;
 
-    if ((dir = opendir("sources")) == NULL)
+    if ((file_names = malloc(FILE_NUM * sizeof(*file_names))) == NULL)
     {
-        ERROR_EXIT("opendir");
+        ERROR_EXIT("malloc");
     }
+    file_num = 0;
 
-    while ((file = readdir(dir)) != NULL)
+    for (char i = 'A'; i <= 'Z'; ++i)
     {
-        
+        for (char j = 'a'; j <= 'z'; ++j)
+        {
+            path[0] = i;
+            path[1] = '/';
+            path[2] = j;
+            path[3] = '\0';
+
+            if ((dir = opendir(path)) == NULL)
+            {
+                ERROR_EXIT("opendir");
+            }
+
+            while ((file = readdir(dir)) != NULL)
+            {
+                if (strcmp(file->d_name, "..") == 0 || strcmp(file->d_name, ".") == 0)
+                    continue;
+                if (has_char(file->d_name, ch))
+                {
+                    snprintf(file_names[file_num++], sizeof(*file_names),
+                             "%s/%s", path, file->d_name);
+                }
+            }
+
+            if (closedir(dir) == -1)
+            {
+                ERROR_EXIT("closedir");
+            }
+        }
     }
-    if (closedir(dir) == -1)
+    file_names[file_num][0] = '\0';
+
+    return file_names;
+}
+
+static void search1(file_names_t file_names)
+{
+    int fd;
+    char new_name[4+8+1];
+
+    for (size_t i = 0; file_names[i][0] != '\0'; ++i)
     {
-        ERROR_EXIT("closedir");
+        if ((fd = open(file_names[i], O_RDWR)) == -1)
+        {
+            puts(file_names[i]);
+            ERROR_EXIT("open ");
+        }
+
+        if (ftruncate(fd, 80) == -1)
+        {
+            ERROR_EXIT("ftruncate");
+        }
+
+        if (read(fd, file_content, 80) == -1)
+        {
+            ERROR_EXIT("read");
+        }
+        file_content[80] = '\0';
+        printf("%lu\nbefore:\n\tpath: content/%s\n\tname: %s\n\tcontent: %s\n",
+               i, file_names[i], &file_names[i][4], file_content);
+
+        if (close(fd) == -1)
+        {
+            ERROR_EXIT("close");
+        }
+
+        strncpy(new_name, file_names[i], 4);
+        get_random_digits(new_name+4, 8);
+        if (rename(file_names[i], new_name) == -1)
+        {
+            ERROR_EXIT("rename");
+        }
+
+        printf("after:\n\tnew name: %s\n", new_name+4);
     }
 }
 
-static void find3()
+static void search2(file_names_t file_names)
 {
-    DIR *dir;
-    struct dirent *file;
+    struct stat st;
 
-    if ((dir = opendir("sources")) == NULL)
+    for (size_t i = 0; file_names[i][0] != '\0'; ++i)
     {
-        ERROR_EXIT("opendir");
-    }
+        if (stat(file_names[i], &st) == -1)
+        {
+            ERROR_EXIT("stat");
+        }
 
-    while ((file = readdir(dir)) != NULL)
-    {
-        
+        printf("name: %s\n\told mode: ", file_names[i]+4);
+
+        print_mode(st.st_mode);
+
+        printf("\n\tnew mode: ");
+
+        if (chmod(file_names[i], 0777) == -1)
+        {
+            ERROR_EXIT("chmod");
+        }
+
+        if (stat(file_names[i], &st) == -1)
+        {
+            ERROR_EXIT("stat");
+        }
+
+        print_mode(st.st_mode);
+        putchar('\n');
     }
-    if (closedir(dir) == -1)
+}
+
+static void search3(file_names_t file_names)
+{
+    struct stat st;
+
+    for (size_t i = 0; file_names[i][0] != '\0'; ++i)
     {
-        ERROR_EXIT("closedir");
+        if (stat(file_names[i], &st) == -1)
+        {
+            ERROR_EXIT("stat");
+        }
+        printf("name: %s\nbefore:\n\tuser id: %u\n\tgroup id: %u\n", file_names[i]+4, st.st_uid, st.st_gid);
+
+        if (chown(file_names[i], st.st_uid+1, st.st_gid+1) == -1)
+        {
+            ERROR_EXIT("chown");
+        }
+
+        if (stat(file_names[i], &st) == -1)
+        {
+            ERROR_EXIT("stat");
+        }
+
+        printf("after:\n\tuser id: %u\n\tgroup id: %u\n", st.st_uid, st.st_gid);
     }
 }
 
@@ -143,7 +324,7 @@ void create_sources()
     {
         for (;;)
         {
-            get_random_uppercase(file_name, FILE_NAME_NUM + 1);
+            get_random_uppercase(file_name, FILE_NAME_NUM);
             if ((fd = open(file_name, O_CREAT | O_EXCL | O_WRONLY, 0644)) == -1)
             {
                 if (errno == EEXIST)
@@ -236,7 +417,7 @@ static void copy_files()
         if (strcmp("..", file->d_name) == 0 || strcmp(".", file->d_name) == 0)
             continue;
         snprintf(src_file_name, sizeof(src_file_name), "sources/%s", file->d_name);
-        puts(src_file_name);
+        // puts(src_file_name);
         if ((src_fd = open(src_file_name, O_RDONLY)) == -1)
         {
             ERROR_EXIT("open");
@@ -301,7 +482,7 @@ bool has_char(const char *str, char ch)
 
 void get_random_uppercase(char* buf, size_t num)
 {
-    for (size_t i = 0; i < num-1; ++i)
+    for (size_t i = 0; i < num; ++i)
     {
         buf[i] = (rand() % 26) + 'A';
     }
@@ -310,7 +491,7 @@ void get_random_uppercase(char* buf, size_t num)
 
 void get_random_lowercase(char* buf, size_t num)
 {
-    for (size_t i = 0; i < num-1; ++i)
+    for (size_t i = 0; i < num; ++i)
     {
         buf[i] = (rand() % 26) + 'a';
     }
@@ -319,9 +500,59 @@ void get_random_lowercase(char* buf, size_t num)
 
 void get_random_digits(char* buf, size_t num)
 {
-    for (size_t i = 0; i < num-1; ++i)
+    for (size_t i = 0; i < num; ++i)
     {
         buf[i] = (rand() % 10) + '0';
     }
     buf[num] = '\0';
+}
+
+void print_mode(mode_t mode)
+{
+    if (mode & S_IRUSR)
+        putchar('r');
+    else
+        putchar ('-');
+
+    if (mode & S_IWUSR)
+        putchar('w');
+    else
+        putchar('-');
+
+    if (mode & S_IXUSR)
+        putchar('x');
+    else
+        putchar('-');
+
+    // group permission
+    if (mode & S_IRGRP)
+        putchar('r');
+    else
+        putchar ('-');
+
+    if (mode & S_IWGRP)
+        putchar('w');
+    else
+        putchar('-');
+
+    if (mode & S_IXGRP)
+        putchar('x');
+    else
+        putchar('-');
+
+    // other permission
+    if (mode & S_IROTH)
+        putchar('r');
+    else
+        putchar ('-');
+
+    if (mode & S_IWOTH)
+        putchar('w');
+    else
+        putchar('-');
+
+    if (mode & S_IXOTH)
+        putchar('x');
+    else
+        putchar('-');
 }

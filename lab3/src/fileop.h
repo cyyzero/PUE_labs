@@ -3,9 +3,11 @@
 
 #define FILE_NAME_NUM      5
 #define FILE_CONTENT_NUM 100
-#define FILE_NUM         100
+#define FILE_NUM         1000
 
-#include <stdio.h>
+#define OP_1 0x1
+#define OP_2 0x2
+#define OP_3 0x4
 
 #define ERROR_EXIT(str)                                    \
 do {                                                       \
@@ -15,5 +17,7 @@ do {                                                       \
 } while (0)                                                \
 
 void init(void);
+void search(char target, int flags);
+void recursive_remove(const char* name);
 
 #endif
