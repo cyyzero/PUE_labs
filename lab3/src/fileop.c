@@ -22,10 +22,6 @@ static void copy_files();
 
 file_names_t get_file_names(char ch);
 
-static void search1(file_names_t);
-static void search2(file_names_t);
-static void search3(file_names_t);
-
 static void get_random_uppercase(char* buf, size_t num);
 static void get_random_lowercase(char* buf, size_t num);
 static void get_random_digits(char* buf, size_t num);
@@ -53,22 +49,107 @@ void search(char target, int flags)
 
     file_names = get_file_names(target);
 
-    if (flags & OP_1)
+    const char *file_name;
+    int fd;
+    char new_name[4+8+1];
+    struct stat st;
+
+    for (size_t i = 0; file_names[i][0] != '\0'; ++i)
     {
-        puts("1");
-        search1(file_names);
-    }
-    else
-    {
+        file_name = file_names[i];
+        printf("%zu\nbefore:\nfile name: %s\n", i, &file_name[4]);
+        if (flags & OP_1)
+        {
+            if ((fd = open(file_name, O_RDWR)) == -1)
+            {
+                fputs(file_name, stderr);
+                ERROR_EXIT("open ");
+            }
+
+            if (ftruncate(fd, 80) == -1)
+            {
+                ERROR_EXIT("ftruncate");
+            }
+
+            if (read(fd, file_content, 80) == -1)
+            {
+                ERROR_EXIT("read");
+            }
+            file_content[80] = '\0';
+
+            printf("\tpath: content/%s\n\tcontent: %s\n", file_name, file_content);
+
+            if (close(fd) == -1)
+            {
+                ERROR_EXIT("close");
+            }
+        }
         if (flags & OP_2)
         {
-            puts("2");
-            search2(file_names);
+            if (stat(file_name, &st) == -1)
+            {
+                ERROR_EXIT("stat");
+            }
+
+            putchar('\t');
+            print_mode(st.st_mode);
+            putchar('\n');
         }
         if (flags & OP_3)
         {
-            puts("3");
-            search3(file_names);
+            if (stat(file_name, &st) == -1)
+            {
+                ERROR_EXIT("stat");
+            }
+            printf("\tuser id: %u\n\tgroup id: %u\n", st.st_uid, st.st_gid);
+        }
+
+        puts("after:");
+        if (flags & OP_2)
+        {
+            if (chmod(file_name, 0777) == -1)
+            {
+                if (errno == EPERM)
+                    fputs("chmod permission denied\n", stderr);
+                else
+                    ERROR_EXIT("chmod");
+            }
+
+            if (stat(file_name, &st) == -1)
+            {
+                ERROR_EXIT("stat");
+            }
+            putchar('\t');
+            print_mode(st.st_mode);
+            putchar('\n');
+        }
+        if (flags & OP_1)
+        {
+            strncpy(new_name, file_name, 4);
+            get_random_digits(new_name+4, 8);
+            if (rename(file_name, new_name) == -1)
+            {
+                ERROR_EXIT("rename");
+            }
+            file_name = new_name;
+            printf("\tname: %s\n", new_name+4);
+        }
+        if (flags & OP_3)
+        {
+            if (chown(file_name, st.st_uid+1, st.st_gid+1) == -1)
+            {
+                if (errno == EPERM)
+                    fputs("chown permission denied\n", stderr);
+                else
+                    ERROR_EXIT("chown");
+            }
+
+            if (stat(file_name, &st) == -1)
+            {
+                ERROR_EXIT("stat");
+            }
+
+            printf("\tuser id: %u\n\tgroup id: %u\n", st.st_uid, st.st_gid);
         }
     }
 
@@ -205,105 +286,6 @@ file_names_t get_file_names(char ch)
     return file_names;
 }
 
-static void search1(file_names_t file_names)
-{
-    int fd;
-    char new_name[4+8+1];
-
-    for (size_t i = 0; file_names[i][0] != '\0'; ++i)
-    {
-        if ((fd = open(file_names[i], O_RDWR)) == -1)
-        {
-            puts(file_names[i]);
-            ERROR_EXIT("open ");
-        }
-
-        if (ftruncate(fd, 80) == -1)
-        {
-            ERROR_EXIT("ftruncate");
-        }
-
-        if (read(fd, file_content, 80) == -1)
-        {
-            ERROR_EXIT("read");
-        }
-        file_content[80] = '\0';
-        printf("%lu\nbefore:\n\tpath: content/%s\n\tname: %s\n\tcontent: %s\n",
-               i, file_names[i], &file_names[i][4], file_content);
-
-        if (close(fd) == -1)
-        {
-            ERROR_EXIT("close");
-        }
-
-        strncpy(new_name, file_names[i], 4);
-        get_random_digits(new_name+4, 8);
-        if (rename(file_names[i], new_name) == -1)
-        {
-            ERROR_EXIT("rename");
-        }
-
-        printf("after:\n\tnew name: %s\n", new_name+4);
-    }
-}
-
-static void search2(file_names_t file_names)
-{
-    struct stat st;
-
-    for (size_t i = 0; file_names[i][0] != '\0'; ++i)
-    {
-        if (stat(file_names[i], &st) == -1)
-        {
-            ERROR_EXIT("stat");
-        }
-
-        printf("name: %s\n\told mode: ", file_names[i]+4);
-
-        print_mode(st.st_mode);
-
-        printf("\n\tnew mode: ");
-
-        if (chmod(file_names[i], 0777) == -1)
-        {
-            ERROR_EXIT("chmod");
-        }
-
-        if (stat(file_names[i], &st) == -1)
-        {
-            ERROR_EXIT("stat");
-        }
-
-        print_mode(st.st_mode);
-        putchar('\n');
-    }
-}
-
-static void search3(file_names_t file_names)
-{
-    struct stat st;
-
-    for (size_t i = 0; file_names[i][0] != '\0'; ++i)
-    {
-        if (stat(file_names[i], &st) == -1)
-        {
-            ERROR_EXIT("stat");
-        }
-        printf("name: %s\nbefore:\n\tuser id: %u\n\tgroup id: %u\n", file_names[i]+4, st.st_uid, st.st_gid);
-
-        if (chown(file_names[i], st.st_uid+1, st.st_gid+1) == -1)
-        {
-            ERROR_EXIT("chown");
-        }
-
-        if (stat(file_names[i], &st) == -1)
-        {
-            ERROR_EXIT("stat");
-        }
-
-        printf("after:\n\tuser id: %u\n\tgroup id: %u\n", st.st_uid, st.st_gid);
-    }
-}
 
 void create_sources()
 {
